@@ -1,0 +1,1186 @@
+--[[
+	MacUI v0.1.0
+	A clean, macOS/Apple-inspired UI library for Roblox.
+
+	Install:
+		1) Create a ModuleScript in ReplicatedStorage named "MacUI".
+		2) Paste this entire file into it.
+
+	Usage:
+		local MacUI = require(game:GetService("ReplicatedStorage"):WaitForChild("MacUI"))
+
+		local window = MacUI.CreateWindow({ Title = "Settings", Size = UDim2.fromOffset(420, 420) })
+		window:AddToggle({ Text = "Enable Sprint", Default = true, OnChanged = function(v) end })
+		window:AddButton({ Text = "Save", Style = "Primary", OnClick = function() end })
+
+	See README.md in this folder for the full API reference.
+]]
+
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+
+-- ===================================================================
+-- Theme
+-- ===================================================================
+
+local Theme = {}
+Theme.Mode = "Dark"
+
+Theme.Light = {
+	Name = "Light",
+	WindowBackground = Color3.fromRGB(236, 236, 236),
+	TitleBarBackground = Color3.fromRGB(224, 224, 224),
+	Surface = Color3.fromRGB(255, 255, 255),
+	SurfaceSecondary = Color3.fromRGB(246, 246, 246),
+	Separator = Color3.fromRGB(0, 0, 0),
+	SeparatorTransparency = 0.9,
+	TextPrimary = Color3.fromRGB(28, 28, 30),
+	TextSecondary = Color3.fromRGB(108, 108, 114),
+	Accent = Color3.fromRGB(0, 122, 255),
+	Success = Color3.fromRGB(52, 199, 89),
+	Warning = Color3.fromRGB(255, 159, 10),
+	Danger = Color3.fromRGB(255, 59, 48),
+	ControlBackground = Color3.fromRGB(255, 255, 255),
+	ButtonSecondaryBackground = Color3.fromRGB(255, 255, 255),
+	ControlBorder = Color3.fromRGB(0, 0, 0),
+	ControlBorderTransparency = 0.88,
+}
+
+Theme.Dark = {
+	Name = "Dark",
+	WindowBackground = Color3.fromRGB(30, 30, 32),
+	TitleBarBackground = Color3.fromRGB(38, 38, 40),
+	Surface = Color3.fromRGB(44, 44, 46),
+	SurfaceSecondary = Color3.fromRGB(54, 54, 56),
+	Separator = Color3.fromRGB(255, 255, 255),
+	SeparatorTransparency = 0.9,
+	TextPrimary = Color3.fromRGB(245, 245, 247),
+	TextSecondary = Color3.fromRGB(152, 152, 158),
+	Accent = Color3.fromRGB(10, 132, 255),
+	Success = Color3.fromRGB(48, 209, 88),
+	Warning = Color3.fromRGB(255, 169, 64),
+	Danger = Color3.fromRGB(255, 69, 58),
+	ControlBackground = Color3.fromRGB(58, 58, 60),
+	ButtonSecondaryBackground = Color3.fromRGB(58, 58, 60),
+	ControlBorder = Color3.fromRGB(255, 255, 255),
+	ControlBorderTransparency = 0.85,
+}
+
+Theme.TrafficLights = {
+	Close = Color3.fromRGB(255, 95, 86),
+	Minimize = Color3.fromRGB(255, 189, 46),
+	Maximize = Color3.fromRGB(39, 201, 63),
+}
+
+Theme.Font = Enum.Font.Gotham
+Theme.FontMedium = Enum.Font.GothamMedium
+Theme.FontBold = Enum.Font.GothamBold
+
+function Theme.Get()
+	return Theme.Mode == "Light" and Theme.Light or Theme.Dark
+end
+
+function Theme.SetMode(mode)
+	assert(mode == "Light" or mode == "Dark", "MacUI: theme mode must be 'Light' or 'Dark'")
+	Theme.Mode = mode
+end
+
+-- ===================================================================
+-- Utilities
+-- ===================================================================
+
+local function create(className, props)
+	local inst = Instance.new(className)
+	local parent = nil
+	for key, value in pairs(props or {}) do
+		if key == "Parent" then
+			parent = value
+		else
+			inst[key] = value
+		end
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+
+local function tween(instance, props, duration, style, direction)
+	local info = TweenInfo.new(duration or 0.18, style or Enum.EasingStyle.Quint, direction or Enum.EasingDirection.Out)
+	local playing = TweenService:Create(instance, info, props)
+	playing:Play()
+	return playing
+end
+
+local function lighten(color, amount)
+	local h, s, v = color:ToHSV()
+	return Color3.fromHSV(h, s, math.clamp(v + amount, 0, 1))
+end
+
+-- Adds a soft, layered drop shadow as a child of `target`. `target` must have
+-- BackgroundTransparency = 1 (it's meant to be an invisible positioning wrapper,
+-- with the real visible surface as a sibling child on top) so the shadow can
+-- bleed outside its bounds without clipping or tinting anything.
+local function addShadow(target, cornerRadius)
+	local holder = create("Frame", {
+		Name = "Shadow",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 3),
+		Size = UDim2.new(1, 0, 1, 0),
+		ZIndex = 1,
+		Parent = target,
+	})
+
+	local layers = {
+		{ expand = 8, transparency = 0.85 },
+		{ expand = 18, transparency = 0.90 },
+		{ expand = 30, transparency = 0.95 },
+	}
+
+	for _, layer in ipairs(layers) do
+		local piece = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			Size = UDim2.new(1, layer.expand, 1, layer.expand),
+			BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = layer.transparency,
+			BorderSizePixel = 0,
+			ZIndex = 1,
+			Parent = holder,
+		})
+		create("UICorner", { CornerRadius = UDim.new(0, cornerRadius + layer.expand / 2), Parent = piece })
+	end
+
+	return holder
+end
+
+local function makeDraggable(handle, target)
+	local dragging = false
+	local dragInput, dragStart, startPos
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = target.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	handle.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then
+			local delta = input.Position - dragStart
+			target.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+-- Every setting row (button/toggle/slider/etc) shares this layout: a
+-- vertically stacked, padded container so multi-line rows (label + control)
+-- work the same way everywhere.
+local function createRow(content, order)
+	local row = create("Frame", {
+		Name = "Row",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = order,
+		Parent = content,
+	})
+	create("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 6),
+		Parent = row,
+	})
+	create("UIPadding", {
+		PaddingLeft = UDim.new(0, 16),
+		PaddingRight = UDim.new(0, 16),
+		PaddingTop = UDim.new(0, 8),
+		PaddingBottom = UDim.new(0, 8),
+		Parent = row,
+	})
+	return row
+end
+
+-- ===================================================================
+-- MacUI
+-- ===================================================================
+
+local MacUI = {}
+MacUI.__index = MacUI
+MacUI.Version = "0.1.0"
+MacUI.Theme = Theme
+
+function MacUI.SetTheme(mode)
+	Theme.SetMode(mode)
+end
+
+-- ===================================================================
+-- Notifications (toasts) - shared across the whole client
+-- ===================================================================
+
+local notifyGui, notifyContainer
+local notifyOrder = 0
+
+local function ensureNotifyGui()
+	if notifyGui and notifyGui.Parent then
+		return
+	end
+	notifyGui = create("ScreenGui", {
+		Name = "MacUI_Notifications",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 100,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		Parent = Players.LocalPlayer:WaitForChild("PlayerGui"),
+	})
+	notifyContainer = create("Frame", {
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -16, 0, 16),
+		Size = UDim2.new(0, 300, 1, -32),
+		Parent = notifyGui,
+	})
+	create("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		Padding = UDim.new(0, 8),
+		Parent = notifyContainer,
+	})
+end
+
+function MacUI.Notify(props)
+	props = props or {}
+	ensureNotifyGui()
+	local theme = Theme.Get()
+
+	local kindColors = {
+		Info = theme.Accent,
+		Success = theme.Success,
+		Warning = theme.Warning,
+		Danger = theme.Danger,
+	}
+	local accentColor = kindColors[props.Type or "Info"] or theme.Accent
+
+	notifyOrder += 1
+	local toast = create("CanvasGroup", {
+		Name = "Toast",
+		BackgroundColor3 = theme.Surface,
+		GroupTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = notifyOrder,
+		ZIndex = 2,
+		Parent = notifyContainer,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 10), Parent = toast })
+	create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = toast,
+	})
+
+	local accentBar = create("Frame", {
+		BackgroundColor3 = accentColor,
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, 4, 1, 0),
+		Parent = toast,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = accentBar })
+
+	local textHolder = create("Frame", {
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 14, 0, 0),
+		Size = UDim2.new(1, -24, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Parent = toast,
+	})
+	create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2), Parent = textHolder })
+	create("UIPadding", {
+		PaddingTop = UDim.new(0, 10),
+		PaddingBottom = UDim.new(0, 10),
+		Parent = textHolder,
+	})
+
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = props.Title or "Notification",
+		Font = Theme.FontMedium,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 1,
+		Parent = textHolder,
+	})
+	if props.Message then
+		create("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Text = props.Message,
+			Font = Theme.Font,
+			TextSize = 12,
+			TextColor3 = theme.TextSecondary,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextWrapped = true,
+			LayoutOrder = 2,
+			Parent = textHolder,
+		})
+	end
+
+	task.defer(function()
+		tween(toast, { GroupTransparency = 0 }, 0.2)
+	end)
+
+	local function dismiss()
+		if toast and toast.Parent then
+			local fadeOut = tween(toast, { GroupTransparency = 1 }, 0.18)
+			fadeOut.Completed:Connect(function()
+				toast:Destroy()
+			end)
+		end
+	end
+
+	task.delay(props.Duration or 4, dismiss)
+
+	toast.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dismiss()
+		end
+	end)
+
+	return toast
+end
+
+-- ===================================================================
+-- Window
+-- ===================================================================
+
+function MacUI.CreateWindow(config)
+	config = config or {}
+	local theme = (config.Theme == "Light" and Theme.Light) or (config.Theme == "Dark" and Theme.Dark) or Theme.Get()
+
+	local screenGui = create("ScreenGui", {
+		Name = config.Name or "MacUIWindow",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+		DisplayOrder = config.DisplayOrder or 10,
+		Parent = config.Parent or Players.LocalPlayer:WaitForChild("PlayerGui"),
+	})
+
+	local size = config.Size or UDim2.fromOffset(440, 340)
+	local titleBarHeight = 38
+
+	local outer = create("Frame", {
+		Name = "Window",
+		BackgroundTransparency = 1,
+		Size = size,
+		Position = config.Position or UDim2.new(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		ZIndex = 2,
+		Parent = screenGui,
+	})
+
+	addShadow(outer, 12)
+
+	local body = create("Frame", {
+		Name = "Body",
+		BackgroundColor3 = theme.Surface,
+		Size = UDim2.new(1, 0, 1, 0),
+		ZIndex = 2,
+		ClipsDescendants = true,
+		Parent = outer,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = body })
+	create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = body,
+	})
+
+	local titleBar = create("Frame", {
+		Name = "TitleBar",
+		BackgroundColor3 = theme.TitleBarBackground,
+		Size = UDim2.new(1, 0, 0, titleBarHeight),
+		ZIndex = 3,
+		Parent = body,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = titleBar })
+	create("Frame", {
+		Name = "SquareOff",
+		BackgroundColor3 = theme.TitleBarBackground,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 0, 1, -12),
+		Size = UDim2.new(1, 0, 0, 12),
+		ZIndex = 3,
+		Parent = titleBar,
+	})
+	create("Frame", {
+		Name = "Separator",
+		BackgroundColor3 = theme.Separator,
+		BackgroundTransparency = theme.SeparatorTransparency,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(1, 0, 0, 1),
+		ZIndex = 4,
+		Parent = titleBar,
+	})
+
+	makeDraggable(titleBar, outer)
+
+	local lights = create("Frame", {
+		Name = "TrafficLights",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 12, 0.5, 0),
+		Size = UDim2.new(0, 52, 0, 12),
+		ZIndex = 5,
+		Parent = titleBar,
+	})
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 8),
+		Parent = lights,
+	})
+
+	local function makeLight(colorKey, glyph, order)
+		local dot = create("TextButton", {
+			Name = colorKey,
+			BackgroundColor3 = Theme.TrafficLights[colorKey],
+			Size = UDim2.new(0, 12, 0, 12),
+			LayoutOrder = order,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 5,
+			Parent = lights,
+		})
+		create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = dot })
+		local icon = create("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = glyph,
+			TextSize = 9,
+			Font = Theme.FontBold,
+			TextColor3 = Color3.fromRGB(60, 20, 0),
+			TextTransparency = 1,
+			ZIndex = 6,
+			Parent = dot,
+		})
+		return dot, icon
+	end
+
+	local closeDot, closeIcon = makeLight("Close", "×", 1)
+	local minDot, minIcon = makeLight("Minimize", "−", 2)
+	local maxDot, maxIcon = makeLight("Maximize", "+", 3)
+
+	local function setIconsVisible(visible)
+		for _, icon in ipairs({ closeIcon, minIcon, maxIcon }) do
+			tween(icon, { TextTransparency = visible and 0.35 or 1 }, 0.12)
+		end
+	end
+	lights.MouseEnter:Connect(function() setIconsVisible(true) end)
+	lights.MouseLeave:Connect(function() setIconsVisible(false) end)
+
+	local titleLabel = create("TextLabel", {
+		Name = "Title",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, -140, 1, 0),
+		Text = config.Title or "Window",
+		Font = Theme.FontMedium,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 4,
+		Parent = titleBar,
+	})
+
+	local content = create("ScrollingFrame", {
+		Name = "Content",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 0, titleBarHeight),
+		Size = UDim2.new(1, 0, 1, -titleBarHeight),
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 6,
+		ScrollBarImageColor3 = theme.TextSecondary,
+		ScrollBarImageTransparency = 0.5,
+		ZIndex = 2,
+		Parent = body,
+	})
+	create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = content })
+	create("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 12), Parent = content })
+
+	local self = setmetatable({
+		_screenGui = screenGui,
+		_outer = outer,
+		_body = body,
+		_content = content,
+		_titleLabel = titleLabel,
+		_theme = theme,
+		_order = 0,
+		_originalSize = size,
+		_originalPosition = outer.Position,
+		_minimized = false,
+		_maximized = false,
+		_closeBehavior = config.CloseBehavior or "Destroy",
+	}, MacUI)
+
+	closeDot.MouseButton1Click:Connect(function() self:Close() end)
+	minDot.MouseButton1Click:Connect(function() self:ToggleMinimize() end)
+	maxDot.MouseButton1Click:Connect(function() self:ToggleMaximize() end)
+
+	return self
+end
+
+function MacUI:SetTitle(text)
+	self._titleLabel.Text = text
+end
+
+function MacUI:Notify(props)
+	return MacUI.Notify(props)
+end
+
+function MacUI:Close()
+	tween(self._outer, { Size = UDim2.new(self._outer.Size.X.Scale, 0, self._outer.Size.Y.Scale, 0) }, 0.15)
+	tween(self._body, { BackgroundTransparency = 1 }, 0.15)
+	task.delay(0.16, function()
+		if self._closeBehavior == "Hide" then
+			self._screenGui.Enabled = false
+		else
+			self._screenGui:Destroy()
+		end
+	end)
+end
+
+function MacUI:Destroy()
+	self._screenGui:Destroy()
+end
+
+function MacUI:ToggleMinimize()
+	if self._maximized then
+		return
+	end
+	self._minimized = not self._minimized
+	if self._minimized then
+		self._content.Visible = false
+		tween(self._outer, { Size = UDim2.new(self._originalSize.X.Scale, self._originalSize.X.Offset, 0, 38) }, 0.2)
+	else
+		self._content.Visible = true
+		tween(self._outer, { Size = self._originalSize }, 0.2)
+	end
+end
+
+function MacUI:ToggleMaximize()
+	if self._minimized then
+		return
+	end
+	self._maximized = not self._maximized
+	if self._maximized then
+		local viewport = workspace.CurrentCamera.ViewportSize
+		tween(self._outer, {
+			Size = UDim2.new(0, viewport.X * 0.8, 0, viewport.Y * 0.8),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+		}, 0.22)
+	else
+		tween(self._outer, { Size = self._originalSize, Position = self._originalPosition }, 0.22)
+	end
+end
+
+-- ===================================================================
+-- Window content: rows
+-- ===================================================================
+
+function MacUI:AddSection(text)
+	self._order += 1
+	local row = createRow(self._content, self._order)
+	local padding = row:FindFirstChildOfClass("UIPadding")
+	if padding then
+		padding.PaddingTop = UDim.new(0, 18)
+	end
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 14),
+		Text = text,
+		Font = Theme.FontMedium,
+		TextSize = 11,
+		TextColor3 = self._theme.TextSecondary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = row,
+	})
+end
+
+function MacUI:AddLabel(props)
+	props = props or {}
+	local theme = self._theme
+	self._order += 1
+	local row = createRow(self._content, self._order)
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Text = props.Text or "",
+		Font = props.Secondary and Theme.Font or Theme.FontMedium,
+		TextSize = props.Secondary and 12 or 13,
+		TextColor3 = props.Secondary and theme.TextSecondary or theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		Parent = row,
+	})
+end
+
+function MacUI:AddDivider()
+	self._order += 1
+	local row = createRow(self._content, self._order)
+	create("Frame", {
+		BackgroundColor3 = self._theme.Separator,
+		BackgroundTransparency = self._theme.SeparatorTransparency,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 1),
+		Parent = row,
+	})
+end
+
+function MacUI:AddButton(props)
+	props = props or {}
+	local theme = self._theme
+	self._order += 1
+	local row = createRow(self._content, self._order)
+
+	local styleKey = props.Style or "Secondary"
+	local bg, textColor
+	if styleKey == "Primary" then
+		bg, textColor = theme.Accent, Color3.fromRGB(255, 255, 255)
+	elseif styleKey == "Destructive" then
+		bg, textColor = theme.Danger, Color3.fromRGB(255, 255, 255)
+	else
+		bg, textColor = theme.ButtonSecondaryBackground, theme.TextPrimary
+	end
+
+	local button = create("TextButton", {
+		Name = "Button",
+		BackgroundColor3 = bg,
+		Size = UDim2.new(1, 0, 0, 32),
+		Font = Theme.FontMedium,
+		TextSize = 13,
+		Text = props.Text or "Button",
+		TextColor3 = textColor,
+		AutoButtonColor = false,
+		Parent = row,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = button })
+	if styleKey == "Secondary" then
+		create("UIStroke", {
+			Color = theme.ControlBorder,
+			Transparency = theme.ControlBorderTransparency,
+			Thickness = 1,
+			Parent = button,
+		})
+	end
+
+	button.MouseEnter:Connect(function()
+		tween(button, { BackgroundColor3 = lighten(bg, 0.06) }, 0.12)
+	end)
+	button.MouseLeave:Connect(function()
+		tween(button, { BackgroundColor3 = bg, Size = UDim2.new(1, 0, 0, 32) }, 0.12)
+	end)
+	button.MouseButton1Down:Connect(function()
+		tween(button, { Size = UDim2.new(1, -4, 0, 30) }, 0.08)
+	end)
+	button.MouseButton1Up:Connect(function()
+		tween(button, { Size = UDim2.new(1, 0, 0, 32) }, 0.08)
+	end)
+	button.MouseButton1Click:Connect(function()
+		if props.OnClick then
+			props.OnClick()
+		end
+	end)
+
+	return button
+end
+
+function MacUI:AddToggle(props)
+	props = props or {}
+	local theme = self._theme
+	self._order += 1
+	local row = createRow(self._content, self._order)
+
+	local line = create("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 22),
+		LayoutOrder = 1,
+		Parent = row,
+	})
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -60, 1, 0),
+		Text = props.Text or "Toggle",
+		Font = Theme.Font,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = line,
+	})
+
+	if props.Description then
+		create("TextLabel", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 0, 16),
+			LayoutOrder = 2,
+			Text = props.Description,
+			Font = Theme.Font,
+			TextSize = 11,
+			TextColor3 = theme.TextSecondary,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextWrapped = true,
+			Parent = row,
+		})
+	end
+
+	local state = props.Default or false
+
+	local track = create("TextButton", {
+		Name = "Track",
+		Text = "",
+		AutoButtonColor = false,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.new(0, 38, 0, 22),
+		BackgroundColor3 = state and theme.Accent or theme.ControlBackground,
+		Parent = line,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = track })
+	create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = track,
+	})
+
+	local knob = create("Frame", {
+		Name = "Knob",
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.new(0, 18, 0, 18),
+		Position = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 2, 0.5, 0),
+		Parent = track,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = knob })
+
+	local function apply(animated)
+		local goalPos = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+		local goalColor = state and theme.Accent or theme.ControlBackground
+		if animated then
+			tween(knob, { Position = goalPos }, 0.15)
+			tween(track, { BackgroundColor3 = goalColor }, 0.15)
+		else
+			knob.Position = goalPos
+			track.BackgroundColor3 = goalColor
+		end
+	end
+
+	track.MouseButton1Click:Connect(function()
+		state = not state
+		apply(true)
+		if props.OnChanged then
+			props.OnChanged(state)
+		end
+	end)
+
+	return {
+		Set = function(_, value)
+			state = value
+			apply(true)
+		end,
+		Get = function()
+			return state
+		end,
+	}
+end
+
+function MacUI:AddSlider(props)
+	props = props or {}
+	local theme = self._theme
+	local min = props.Min or 0
+	local max = props.Max or 100
+	local step = props.Step or 1
+	local value = math.clamp(props.Default or min, min, max)
+
+	self._order += 1
+	local row = createRow(self._content, self._order)
+
+	local line = create("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 16),
+		LayoutOrder = 1,
+		Parent = row,
+	})
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -50, 1, 0),
+		Text = props.Text or "Slider",
+		Font = Theme.Font,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = line,
+	})
+	local valueLabel = create("TextLabel", {
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.new(0, 50, 1, 0),
+		Text = tostring(value),
+		Font = Theme.Font,
+		TextSize = 12,
+		TextColor3 = theme.TextSecondary,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = line,
+	})
+
+	local track = create("Frame", {
+		Name = "Track",
+		BackgroundColor3 = theme.ControlBackground,
+		Size = UDim2.new(1, 0, 0, 4),
+		Position = UDim2.new(0, 0, 0, 8),
+		LayoutOrder = 2,
+		Parent = row,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = track })
+
+	local fill = create("Frame", {
+		Name = "Fill",
+		BackgroundColor3 = theme.Accent,
+		Size = UDim2.new((value - min) / (max - min), 0, 1, 0),
+		Parent = track,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = fill })
+
+	local knob = create("Frame", {
+		Name = "Knob",
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new((value - min) / (max - min), 0, 0.5, 0),
+		Size = UDim2.new(0, 14, 0, 14),
+		ZIndex = 2,
+		Parent = track,
+	})
+	create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = knob })
+	create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = knob,
+	})
+
+	local dragging = false
+
+	local function setFromAlpha(alpha)
+		alpha = math.clamp(alpha, 0, 1)
+		local raw = min + (max - min) * alpha
+		local stepped = math.clamp(math.floor(raw / step + 0.5) * step, min, max)
+		value = stepped
+		local snappedAlpha = (value - min) / (max - min)
+		fill.Size = UDim2.new(snappedAlpha, 0, 1, 0)
+		knob.Position = UDim2.new(snappedAlpha, 0, 0.5, 0)
+		valueLabel.Text = tostring(value)
+		if props.OnChanged then
+			props.OnChanged(value)
+		end
+	end
+
+	track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFromAlpha((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
+		end
+	end)
+	knob.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			setFromAlpha((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	return {
+		Set = function(_, newValue)
+			setFromAlpha((newValue - min) / (max - min))
+		end,
+		Get = function()
+			return value
+		end,
+	}
+end
+
+function MacUI:AddInput(props)
+	props = props or {}
+	local theme = self._theme
+	self._order += 1
+	local row = createRow(self._content, self._order)
+
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 16),
+		LayoutOrder = 1,
+		Text = props.Text or "Input",
+		Font = Theme.Font,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = row,
+	})
+
+	local box = create("TextBox", {
+		Name = "Input",
+		BackgroundColor3 = theme.ControlBackground,
+		Size = UDim2.new(1, 0, 0, 30),
+		LayoutOrder = 2,
+		Font = Theme.Font,
+		TextSize = 13,
+		Text = props.Default or "",
+		PlaceholderText = props.Placeholder or "",
+		TextColor3 = theme.TextPrimary,
+		PlaceholderColor3 = theme.TextSecondary,
+		ClearTextOnFocus = false,
+		Parent = row,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = box })
+	create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = box })
+	local stroke = create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = box,
+	})
+
+	box.Focused:Connect(function()
+		tween(stroke, { Color = theme.Accent, Transparency = 0 }, 0.12)
+	end)
+	box.FocusLost:Connect(function()
+		tween(stroke, { Color = theme.ControlBorder, Transparency = theme.ControlBorderTransparency }, 0.12)
+		if props.OnChanged then
+			props.OnChanged(box.Text)
+		end
+	end)
+
+	return {
+		Set = function(_, text)
+			box.Text = text
+		end,
+		Get = function()
+			return box.Text
+		end,
+	}
+end
+
+function MacUI:AddDropdown(props)
+	props = props or {}
+	local theme = self._theme
+	local options = props.Options or {}
+	local selected = props.Default or options[1]
+
+	self._order += 1
+	local row = createRow(self._content, self._order)
+
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 16),
+		LayoutOrder = 1,
+		Text = props.Text or "Dropdown",
+		Font = Theme.Font,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = row,
+	})
+
+	local button = create("TextButton", {
+		Name = "Dropdown",
+		BackgroundColor3 = theme.ControlBackground,
+		Size = UDim2.new(1, 0, 0, 30),
+		LayoutOrder = 2,
+		AutoButtonColor = false,
+		Text = "",
+		Parent = row,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = button })
+	create("UIStroke", {
+		Color = theme.ControlBorder,
+		Transparency = theme.ControlBorderTransparency,
+		Thickness = 1,
+		Parent = button,
+	})
+	create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = button })
+
+	local valueLabel = create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -20, 1, 0),
+		Text = tostring(selected or ""),
+		Font = Theme.Font,
+		TextSize = 13,
+		TextColor3 = theme.TextPrimary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = button,
+	})
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.new(0, 16, 1, 0),
+		Text = "⌄",
+		Font = Theme.FontBold,
+		TextSize = 13,
+		TextColor3 = theme.TextSecondary,
+		Parent = button,
+	})
+
+	local overlayLayer = self._outer.Parent
+	local panel, blocker
+
+	local function closePanel()
+		if panel then
+			panel:Destroy()
+			panel = nil
+		end
+		if blocker then
+			blocker:Destroy()
+			blocker = nil
+		end
+	end
+
+	local function openPanel()
+		closePanel()
+
+		blocker = create("TextButton", {
+			Name = "Blocker",
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 20,
+			Parent = overlayLayer,
+		})
+		blocker.MouseButton1Click:Connect(closePanel)
+
+		local abs = button.AbsolutePosition
+		local sz = button.AbsoluteSize
+
+		panel = create("Frame", {
+			Name = "DropdownPanel",
+			BackgroundColor3 = theme.Surface,
+			Position = UDim2.new(0, abs.X, 0, abs.Y + sz.Y + 4),
+			Size = UDim2.new(0, sz.X, 0, math.min(#options, 6) * 28 + 8),
+			ZIndex = 21,
+			ClipsDescendants = true,
+			Parent = overlayLayer,
+		})
+		create("UICorner", { CornerRadius = UDim.new(0, 8), Parent = panel })
+		create("UIStroke", {
+			Color = theme.ControlBorder,
+			Transparency = theme.ControlBorderTransparency,
+			Thickness = 1,
+			Parent = panel,
+		})
+
+		local list = create("ScrollingFrame", {
+			BackgroundTransparency = 1,
+			Size = UDim2.new(1, 0, 1, 0),
+			CanvasSize = UDim2.new(0, 0, 0, 0),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			ScrollBarThickness = 4,
+			ZIndex = 21,
+			Parent = panel,
+		})
+		create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
+		create("UIPadding", {
+			PaddingTop = UDim.new(0, 4),
+			PaddingBottom = UDim.new(0, 4),
+			PaddingLeft = UDim.new(0, 4),
+			PaddingRight = UDim.new(0, 4),
+			Parent = list,
+		})
+
+		for i, option in ipairs(options) do
+			local isSelected = option == selected
+			local optionButton = create("TextButton", {
+				BackgroundColor3 = theme.Surface,
+				BackgroundTransparency = isSelected and 0.9 or 1,
+				Size = UDim2.new(1, 0, 0, 26),
+				LayoutOrder = i,
+				Text = tostring(option),
+				Font = Theme.Font,
+				TextSize = 13,
+				TextColor3 = theme.TextPrimary,
+				AutoButtonColor = false,
+				ZIndex = 22,
+				Parent = list,
+			})
+			create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = optionButton })
+			optionButton.MouseEnter:Connect(function()
+				tween(optionButton, { BackgroundTransparency = 0.85 }, 0.1)
+			end)
+			optionButton.MouseLeave:Connect(function()
+				tween(optionButton, { BackgroundTransparency = (option == selected) and 0.9 or 1 }, 0.1)
+			end)
+			optionButton.MouseButton1Click:Connect(function()
+				selected = option
+				valueLabel.Text = tostring(option)
+				closePanel()
+				if props.OnChanged then
+					props.OnChanged(option)
+				end
+			end)
+		end
+	end
+
+	button.MouseButton1Click:Connect(function()
+		if panel then
+			closePanel()
+		else
+			openPanel()
+		end
+	end)
+
+	return {
+		Set = function(_, option)
+			selected = option
+			valueLabel.Text = tostring(option)
+		end,
+		Get = function()
+			return selected
+		end,
+	}
+end
+
+return MacUI
