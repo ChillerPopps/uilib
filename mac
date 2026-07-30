@@ -50,7 +50,7 @@ Theme.Light = {
 Theme.Dark = {
 	Name = "Dark",
 	WindowBackground = Color3.fromRGB(30, 30, 32),
-	TitleBarBackground = Color3.fromRGB(38, 38, 40),
+	TitleBarBackground = Color3.fromRGB(32, 32, 34),
 	Surface = Color3.fromRGB(44, 44, 46),
 	SurfaceSecondary = Color3.fromRGB(54, 54, 56),
 	Separator = Color3.fromRGB(255, 255, 255),
@@ -417,6 +417,11 @@ function MacUI.CreateWindow(config)
 		Thickness = 1,
 		Parent = body,
 	})
+	create("UIGradient", {
+		Color = ColorSequence.new(lighten(theme.Surface, 0.025), theme.Surface),
+		Rotation = 90,
+		Parent = body,
+	})
 
 	local titleBar = create("Frame", {
 		Name = "TitleBar",
@@ -458,6 +463,7 @@ function MacUI.CreateWindow(config)
 		Parent = titleBar,
 	})
 	create("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
 		FillDirection = Enum.FillDirection.Horizontal,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 		Padding = UDim.new(0, 8),
@@ -482,7 +488,7 @@ function MacUI.CreateWindow(config)
 			Text = glyph,
 			TextSize = 9,
 			Font = Theme.FontBold,
-			TextColor3 = Color3.fromRGB(60, 20, 0),
+			TextColor3 = lighten(Theme.TrafficLights[colorKey], -0.35),
 			TextTransparency = 1,
 			ZIndex = 6,
 			Parent = dot,
