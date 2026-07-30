@@ -245,12 +245,32 @@ local function createRow(content, order)
 end
 
 -- ===================================================================
+-- Page - a single scrollable content pane. A window always has one
+-- "default" page (so window:AddButton(...) etc keep working exactly like
+-- before), and window:AddTab(...) creates additional pages switched by a
+-- tab bar. All the Add* row methods below are defined on Page; MacUI just
+-- forwards its own Add* calls to the window's default page.
+-- ===================================================================
+
+local Page = {}
+Page.__index = Page
+
+function Page.new(content, theme, outer)
+	return setmetatable({
+		_content = content,
+		_theme = theme,
+		_outer = outer,
+		_order = 0,
+	}, Page)
+end
+
+-- ===================================================================
 -- MacUI
 -- ===================================================================
 
 local MacUI = {}
 MacUI.__index = MacUI
-MacUI.Version = "0.1.0"
+MacUI.Version = "0.2.0"
 MacUI.Theme = Theme
 
 function MacUI.SetTheme(mode)
@@ -572,19 +592,158 @@ function MacUI.CreateWindow(config)
 		_content = content,
 		_titleLabel = titleLabel,
 		_theme = theme,
-		_order = 0,
+		_titleBarHeight = titleBarHeight,
 		_originalSize = size,
 		_originalPosition = outer.Position,
 		_minimized = false,
 		_maximized = false,
 		_closeBehavior = config.CloseBehavior or "Destroy",
+		_tabs = nil,
+		_tabBar = nil,
+		_pageHolder = nil,
 	}, MacUI)
+
+	self._defaultPage = Page.new(content, theme, outer)
 
 	closeDot.MouseButton1Click:Connect(function() self:Close() end)
 	minDot.MouseButton1Click:Connect(function() self:ToggleMinimize() end)
 	maxDot.MouseButton1Click:Connect(function() self:ToggleMaximize() end)
 
 	return self
+end
+
+-- These forward straight to the window's default (untabbed) page, so any
+-- script written before AddTab existed keeps working unchanged.
+function MacUI:AddSection(...) return self._defaultPage:AddSection(...) end
+function MacUI:AddLabel(...) return self._defaultPage:AddLabel(...) end
+function MacUI:AddDivider(...) return self._defaultPage:AddDivider(...) end
+function MacUI:AddButton(...) return self._defaultPage:AddButton(...) end
+function MacUI:AddToggle(...) return self._defaultPage:AddToggle(...) end
+function MacUI:AddSlider(...) return self._defaultPage:AddSlider(...) end
+function MacUI:AddInput(...) return self._defaultPage:AddInput(...) end
+function MacUI:AddDropdown(...) return self._defaultPage:AddDropdown(...) end
+
+-- ===================================================================
+-- Tabs
+-- ===================================================================
+
+local TAB_BAR_HEIGHT = 46
+
+function MacUI:_initTabs()
+	local theme = self._theme
+	self._tabs = {}
+	self._content.Visible = false
+
+	self._tabBar = create("Frame", {
+		Name = "TabBar",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 0, self._titleBarHeight),
+		Size = UDim2.new(1, 0, 0, TAB_BAR_HEIGHT),
+		ZIndex = 2,
+		Parent = self._body,
+	})
+	create("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 4),
+		Parent = self._tabBar,
+	})
+	create("Frame", {
+		Name = "Separator",
+		BackgroundColor3 = theme.Separator,
+		BackgroundTransparency = theme.SeparatorTransparency,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(1, 0, 0, 1),
+		ZIndex = 2,
+		Parent = self._tabBar,
+	})
+
+	self._pageHolder = create("Frame", {
+		Name = "Pages",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 0, self._titleBarHeight + TAB_BAR_HEIGHT),
+		Size = UDim2.new(1, 0, 1, -(self._titleBarHeight + TAB_BAR_HEIGHT)),
+		ZIndex = 2,
+		Parent = self._body,
+	})
+end
+
+-- Adds a toolbar tab (icon over a small label, like classic macOS System
+-- Preferences) and returns a Page with the same AddButton/AddToggle/etc
+-- methods as the window itself. The first tab added is selected by default.
+function MacUI:AddTab(props)
+	props = props or {}
+	if not self._tabBar then
+		self:_initTabs()
+	end
+	local theme = self._theme
+	local isFirst = (#self._tabs == 0)
+
+	local tabButton = create("TextButton", {
+		Name = "Tab",
+		BackgroundColor3 = theme.Accent,
+		BackgroundTransparency = isFirst and 0.85 or 1,
+		AutoButtonColor = false,
+		Size = UDim2.new(0, 64, 1, -8),
+		Text = "",
+		Parent = self._tabBar,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = tabButton })
+
+	if props.Icon then
+		create("TextLabel", {
+			BackgroundTransparency = 1,
+			Position = UDim2.new(0, 0, 0, 4),
+			Size = UDim2.new(1, 0, 0, 18),
+			Text = props.Icon,
+			Font = Theme.FontMedium,
+			TextSize = 13,
+			TextColor3 = theme.TextPrimary,
+			Parent = tabButton,
+		})
+	end
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0, 0, 1, -16),
+		Size = UDim2.new(1, 0, 0, 14),
+		Text = props.Name or "Tab",
+		Font = Theme.Font,
+		TextSize = 10,
+		TextColor3 = theme.TextSecondary,
+		Parent = tabButton,
+	})
+
+	local pageContent = create("ScrollingFrame", {
+		Name = "Page",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollBarThickness = 6,
+		ScrollBarImageColor3 = theme.TextSecondary,
+		ScrollBarImageTransparency = 0.5,
+		Visible = isFirst,
+		ZIndex = 2,
+		Parent = self._pageHolder,
+	})
+	create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = pageContent })
+	create("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 12), Parent = pageContent })
+
+	local entry = { button = tabButton, page = pageContent }
+	table.insert(self._tabs, entry)
+
+	tabButton.MouseButton1Click:Connect(function()
+		for _, t in ipairs(self._tabs) do
+			local active = (t == entry)
+			t.page.Visible = active
+			tween(t.button, { BackgroundTransparency = active and 0.85 or 1 }, 0.12)
+		end
+	end)
+
+	return Page.new(pageContent, theme, self._outer)
 end
 
 function MacUI:SetTitle(text)
@@ -645,7 +804,7 @@ end
 -- Window content: rows
 -- ===================================================================
 
-function MacUI:AddSection(text)
+function Page:AddSection(text)
 	self._order += 1
 	local row = createRow(self._content, self._order)
 	local padding = row:FindFirstChildOfClass("UIPadding")
@@ -664,7 +823,7 @@ function MacUI:AddSection(text)
 	})
 end
 
-function MacUI:AddLabel(props)
+function Page:AddLabel(props)
 	props = props or {}
 	local theme = self._theme
 	self._order += 1
@@ -683,7 +842,7 @@ function MacUI:AddLabel(props)
 	})
 end
 
-function MacUI:AddDivider()
+function Page:AddDivider()
 	self._order += 1
 	local row = createRow(self._content, self._order)
 	create("Frame", {
@@ -695,7 +854,7 @@ function MacUI:AddDivider()
 	})
 end
 
-function MacUI:AddButton(props)
+function Page:AddButton(props)
 	props = props or {}
 	local theme = self._theme
 	self._order += 1
@@ -753,7 +912,7 @@ function MacUI:AddButton(props)
 	return button
 end
 
-function MacUI:AddToggle(props)
+function Page:AddToggle(props)
 	props = props or {}
 	local theme = self._theme
 	self._order += 1
@@ -861,7 +1020,7 @@ function MacUI:AddToggle(props)
 	}
 end
 
-function MacUI:AddSlider(props)
+function Page:AddSlider(props)
 	props = props or {}
 	local theme = self._theme
 	local min = props.Min or 0
@@ -992,7 +1151,7 @@ function MacUI:AddSlider(props)
 	}
 end
 
-function MacUI:AddInput(props)
+function Page:AddInput(props)
 	props = props or {}
 	local theme = self._theme
 	self._order += 1
@@ -1053,7 +1212,7 @@ function MacUI:AddInput(props)
 	}
 end
 
-function MacUI:AddDropdown(props)
+function Page:AddDropdown(props)
 	props = props or {}
 	local theme = self._theme
 	local options = props.Options or {}
