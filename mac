@@ -118,6 +118,32 @@ local function lighten(color, amount)
 	return Color3.fromHSV(h, s, math.clamp(v + amount, 0, 1))
 end
 
+-- Small colored rounded-square badge placed before a row's label, e.g. the
+-- blue Wi-Fi/Bluetooth icons in macOS Control Center. `icon` should be a
+-- single simple glyph (Roblox's built-in fonts don't reliably render full
+-- color emoji) - a letter, a symbol like "\u{2699}", or similar.
+local function createIconChip(parent, icon, color)
+	local chip = create("Frame", {
+		Name = "Icon",
+		BackgroundColor3 = color,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		Size = UDim2.new(0, 26, 0, 26),
+		Parent = parent,
+	})
+	create("UICorner", { CornerRadius = UDim.new(0, 7), Parent = chip })
+	create("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = icon or "",
+		Font = Theme.FontMedium,
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		Parent = chip,
+	})
+	return chip
+end
+
 -- Adds a soft, layered drop shadow as a child of `target`. `target` must have
 -- BackgroundTransparency = 1 (it's meant to be an invisible positioning wrapper,
 -- with the real visible surface as a sibling child on top) so the shadow can
@@ -735,13 +761,21 @@ function MacUI:AddToggle(props)
 
 	local line = create("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 22),
+		Size = UDim2.new(1, 0, 0, 26),
 		LayoutOrder = 1,
 		Parent = row,
 	})
+
+	local inset = 0
+	if props.Icon then
+		createIconChip(line, props.Icon, props.IconColor or theme.Accent)
+		inset = 34
+	end
+
 	create("TextLabel", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -60, 1, 0),
+		Position = UDim2.new(0, inset, 0, 0),
+		Size = UDim2.new(1, -inset - 60, 1, 0),
 		Text = props.Text or "Toggle",
 		Font = Theme.Font,
 		TextSize = 13,
@@ -753,7 +787,8 @@ function MacUI:AddToggle(props)
 	if props.Description then
 		create("TextLabel", {
 			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 16),
+			Position = UDim2.new(0, inset, 0, 0),
+			Size = UDim2.new(1, -inset, 0, 16),
 			LayoutOrder = 2,
 			Text = props.Description,
 			Font = Theme.Font,
@@ -839,13 +874,21 @@ function MacUI:AddSlider(props)
 
 	local line = create("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 16),
+		Size = UDim2.new(1, 0, 0, 26),
 		LayoutOrder = 1,
 		Parent = row,
 	})
+
+	local inset = 0
+	if props.Icon then
+		createIconChip(line, props.Icon, props.IconColor or theme.Accent)
+		inset = 34
+	end
+
 	create("TextLabel", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -50, 1, 0),
+		Position = UDim2.new(0, inset, 0, 0),
+		Size = UDim2.new(1, -inset - 50, 1, 0),
 		Text = props.Text or "Slider",
 		Font = Theme.Font,
 		TextSize = 13,
@@ -1019,16 +1062,29 @@ function MacUI:AddDropdown(props)
 	self._order += 1
 	local row = createRow(self._content, self._order)
 
+	local line = create("Frame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 26),
+		LayoutOrder = 1,
+		Parent = row,
+	})
+
+	local inset = 0
+	if props.Icon then
+		createIconChip(line, props.Icon, props.IconColor or theme.Accent)
+		inset = 34
+	end
+
 	create("TextLabel", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 16),
-		LayoutOrder = 1,
+		Position = UDim2.new(0, inset, 0, 0),
+		Size = UDim2.new(1, -inset, 1, 0),
 		Text = props.Text or "Dropdown",
 		Font = Theme.Font,
 		TextSize = 13,
 		TextColor3 = theme.TextPrimary,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = row,
+		Parent = line,
 	})
 
 	local button = create("TextButton", {
